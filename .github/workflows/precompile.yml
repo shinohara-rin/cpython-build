@@ -1,0 +1,454 @@
+name: precompile
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  linux-gnu:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [x86_64, i686, aarch64, riscv64, ppc64le, s390x]
+
+    name: ${{ matrix.arch }}-linux-gnu
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pull docker image
+        run: |
+          if [ "${{ matrix.arch }}" = "riscv64" ]; then
+            sudo docker pull --platform=linux/${{ matrix.arch }} riscv64/ubuntu:22.04
+          else
+            sudo docker pull quay.io/pypa/manylinux2014_${{ matrix.arch }}:latest
+          fi
+
+      - name: Install binfmt
+        run: |
+          sudo apt update
+          sudo apt install -y binfmt-support qemu-user-static
+
+      - name: Precompile
+        run: |
+          cp .github/script-to-build-gnu.sh ./
+          cp .github/do-build.sh ./
+
+          bash ./script-to-build-gnu.sh "${GITHUB_REF##*/v}" "${{ matrix.arch }}"
+
+      - uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            libpython*.tar.gz
+
+  # linux-musl:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       arch: [x86_64, i386, aarch64, riscv64, ppc64le, s390x]
+
+  #   name: ${{ matrix.arch }}-linux-musl
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Pull docker image
+  #       run: |
+  #         if [ "${{ matrix.arch }}" = "riscv64" ]; then
+  #           sudo docker pull --platform=linux/${{ matrix.arch }} alpine:edge
+  #         else
+  #           sudo docker pull --platform=linux/${{ matrix.arch }} alpine:latest
+  #         fi
+
+  #     - name: Install binfmt
+  #       run: |
+  #         sudo apt update
+  #         sudo apt install -y binfmt-support qemu-user-static
+
+  #     - name: Precompile
+  #       run: |
+  #         cp .github/script-to-build-musl.sh ./
+  #         cp .github/do-build.sh ./
+
+  #         if [ "${{ matrix.arch }}" = "riscv64" ]; then
+  #           bash ./script-to-build-musl.sh "${GITHUB_REF##*/v}" "${{ matrix.arch }}" "alpine:edge"
+  #         else
+  #           bash ./script-to-build-musl.sh "${GITHUB_REF##*/v}" "${{ matrix.arch }}" "alpine:latest"
+  #         fi
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           openssl-*.tar.gz
+
+  # deploy-linux:
+  #   runs-on: ubuntu-latest
+  #   needs: [linux-gnu, linux-musl]
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_LINUX_GNU_HOOK_URL: ${{ secrets.DEPLOY_LINUX_GNU_HOOK_URL }}
+  #         DEPLOY_LINUX_MUSL_HOOK_URL: ${{ secrets.DEPLOY_LINUX_MUSL_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_LINUX_GNU_HOOK_URL}${{ github.ref_name }}"
+  #         curl -sS --no-progress-meter "${DEPLOY_LINUX_MUSL_HOOK_URL}${{ github.ref_name }}"
+
+  # macos:
+  #   runs-on: macos-12
+  #   strategy:
+  #     matrix:
+  #       arch: [x86_64, arm64]
+  #     fail-fast: false
+  #   name: ${{ matrix.arch }}-apple-darwin
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Download OpenSSL Source Code
+  #       run: |
+  #         export OPENSSL_VERSION=${GITHUB_REF##*/v}
+  #         echo "$OPENSSL_VERSION"
+  #         curl -fSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" -o "openssl-${OPENSSL_VERSION}.tar.gz"
+  #         tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz"
+
+  #     - name: Compile OpenSSL
+  #       run: |
+  #         export OPENSSL_VERSION=${GITHUB_REF##*/v}
+  #         export ROOTDIR="$(pwd)"
+  #         export PERFIX_DIR="/tmp/openssl-${{ matrix.arch }}-apple-darwin"
+  #         mkdir -p "${PERFIX_DIR}"
+  #         cd "openssl-${OPENSSL_VERSION}"
+  #         mkdir build
+  #         if [ "${{ matrix.arch }}" = "arm64" ]; then
+  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" darwin64-arm64 no-tests
+  #         else
+  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" darwin64-x86_64 no-tests
+  #         fi
+  #         make -j"$(sysctl -n hw.ncpu)"
+  #         make -j"$(sysctl -n hw.ncpu)" install_sw
+  #         make -j"$(sysctl -n hw.ncpu)" install_ssldirs
+  #         mkdir -p "${ROOTDIR}/build"
+  #         cd "${PERFIX_DIR}"
+  #         tar -czf "${ROOTDIR}/build/openssl-${{ matrix.arch }}-apple-darwin.tar.gz" .
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           build/*.tar.gz
+
+  # deploy-macos:
+  #   runs-on: ubuntu-latest
+  #   needs: macos
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_MACOS_HOOK_URL: ${{ secrets.DEPLOY_MACOS_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_MACOS_HOOK_URL}${{ github.ref_name }}"
+
+  # freebsd:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - pair:
+  #             fullversion: "13.2"
+  #             major: "13"
+  #         - pair:
+  #             fullversion: "14.0"
+  #             major: "14"
+  #     fail-fast: false
+
+  #   name: x86_64-unknown-freebsd${{ matrix.pair.major }}
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Compile in FreeBSD
+  #       id: compile-freebsd
+  #       uses: vmactions/freebsd-vm@v1
+  #       with:
+  #         release: ${{ matrix.pair.fullversion }}
+  #         usesh: true
+  #         prepare: |
+  #           pkg install -y curl perl5
+
+  #         run: |
+  #           export ROOT_DIR="$(pwd)"
+  #           export TRIPLET=x86_64-unknown-freebsd${{ matrix.pair.major }}
+  #           export OPENSSL_VERSION="${GITHUB_REF##*/v}"
+  #           export PERFIX_DIR=/openssl-${TRIPLET}
+  #           curl -fSL https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz -o openssl-${OPENSSL_VERSION}.tar.gz
+  #           tar xf openssl-${OPENSSL_VERSION}.tar.gz
+  #           rm -f openssl-${OPENSSL_VERSION}.tar.gz
+  #           cd openssl-${OPENSSL_VERSION}
+  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" no-tests
+  #           make -j$(nproc)
+  #           make -j$(nproc) install_sw
+  #           make -j$(nproc) install_ssldirs
+  #           cd "/openssl-${TRIPLET}"
+  #           tar -czf "${ROOT_DIR}/openssl-${TRIPLET}.tar.gz" .
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           openssl-*.tar.gz
+
+  # openbsd:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - pair:
+  #             fullversion: "7.2"
+  #             major: "7"
+  #         # - pair:
+  #         #     fullversion: "7.3"
+  #         #     major: "7"
+  #         # - pair:
+  #         #     fullversion: "7.4"
+  #         #     major: "7"
+  #     fail-fast: false
+
+  #   name: x86_64-unknown-openbsd${{ matrix.pair.fullversion }}
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Compile in OpenBSD
+  #       id: compile-openbsd
+  #       uses: vmactions/openbsd-vm@v1
+  #       with:
+  #         release: ${{ matrix.pair.fullversion }}
+  #         usesh: true
+  #         prepare: |
+  #           pkg_add curl
+
+  #         run: |
+  #           export ROOT_DIR="$(pwd)"
+  #           export TRIPLET=x86_64-unknown-openbsd${{ matrix.pair.major }}
+  #           export OPENSSL_VERSION="${GITHUB_REF##*/v}"
+  #           export PERFIX_DIR=/openssl-${TRIPLET}
+  #           mkdir -p "${PERFIX_DIR}"
+  #           curl -fSL https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz -o openssl-${OPENSSL_VERSION}.tar.gz
+  #           tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
+  #           rm -f openssl-${OPENSSL_VERSION}.tar.gz
+  #           cd openssl-${OPENSSL_VERSION}
+  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" no-tests
+  #           make -j$(getconf NPROCESSORS_ONLN)
+  #           make -j$(getconf NPROCESSORS_ONLN) install_sw
+  #           make -j$(getconf NPROCESSORS_ONLN)install_ssldirs
+  #           cd "/openssl-${TRIPLET}"
+  #           tar -czf "${ROOT_DIR}/openssl-${TRIPLET}.tar.gz" .
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           openssl-*.tar.gz
+
+  # netbsd:
+  #   runs-on: ubuntu-latest
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - pair:
+  #             fullversion: "9.0"
+  #             major: "9"
+  #         # - pair:
+  #         #     fullversion: "9.1"
+  #         #     major: "9"
+  #         # - pair:
+  #         #     fullversion: "9.2"
+  #         #     major: "9"
+  #         # - pair:
+  #         #     fullversion: "9.3"
+  #         #     major: "9"
+  #     fail-fast: false
+
+  #   name: x86_64-unknown-netbsd${{ matrix.pair.fullversion }}
+
+  #   steps:
+  #     - uses: actions/checkout@v4
+
+  #     - name: Compile in NetBSD
+  #       id: compile-netbsd
+  #       uses: vmactions/netbsd-vm@v1
+  #       with:
+  #         release: ${{ matrix.pair.fullversion }}
+  #         usesh: true
+  #         prepare: |
+  #           /usr/sbin/pkg_add curl perl
+
+  #         run: |
+  #           export ROOT_DIR="$(pwd)"
+  #           export TRIPLET=x86_64-unknown-netbsd${{ matrix.pair.major }}
+  #           export OPENSSL_VERSION="${GITHUB_REF##*/v}"
+  #           export PERFIX_DIR=/openssl-${TRIPLET}
+  #           mkdir -p "${PERFIX_DIR}"
+  #           curl -fSL https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz -o openssl-${OPENSSL_VERSION}.tar.gz
+  #           tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
+  #           rm -f openssl-${OPENSSL_VERSION}.tar.gz
+  #           cd openssl-${OPENSSL_VERSION}
+  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" no-tests
+  #           make -j$(getconf NPROCESSORS_ONLN)
+  #           make -j$(getconf NPROCESSORS_ONLN) install_sw
+  #           make -j$(getconf NPROCESSORS_ONLN) install_ssldirs
+  #           cd "/openssl-${TRIPLET}"
+  #           tar -czf "${ROOT_DIR}/openssl-${TRIPLET}.tar.gz" .
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           openssl-*.tar.gz
+
+  # deploy-freebsd:
+  #   runs-on: ubuntu-latest
+  #   needs: freebsd
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_FREEBSD13_HOOK_URL: ${{ secrets.DEPLOY_FREEBSD13_HOOK_URL }}
+  #         DEPLOY_FREEBSD14_HOOK_URL: ${{ secrets.DEPLOY_FREEBSD14_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_FREEBSD13_HOOK_URL}${{ github.ref_name }}"
+  #         curl -sS --no-progress-meter "${DEPLOY_FREEBSD14_HOOK_URL}${{ github.ref_name }}"
+
+  # deploy-openbsd:
+  #   runs-on: ubuntu-latest
+  #   needs: openbsd
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_OPENBSD7_HOOK_URL: ${{ secrets.DEPLOY_OPENBSD7_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_OPENBSD7_HOOK_URL}${{ github.ref_name }}"
+
+  # deploy-netbsd:
+  #   runs-on: ubuntu-latest
+  #   needs: netbsd
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_NETBSD9_HOOK_URL: ${{ secrets.DEPLOY_NETBSD9_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_NETBSD9_HOOK_URL}${{ github.ref_name }}"
+
+  # windows:
+  #   runs-on: windows-2019
+  #   env:
+  #     PERL5_VERSION: "5.38.2"
+  #   strategy:
+  #     matrix:
+  #       include:
+  #         - pair:
+  #           arch: "x86_64"
+  #           vcvarsall: "x64"
+  #           shared: static
+  #         - pair:
+  #             arch: "x86_64"
+  #             vcvarsall: "x64"
+  #             shared: shared
+  #         - pair:
+  #             arch: "aarch64"
+  #             vcvarsall: "amd64_arm64"
+  #             shared: static
+  #         - pair:
+  #             arch: "aarch64"
+  #             vcvarsall: "amd64_arm64"
+  #             shared: shared
+
+  #   name: ${{ matrix.pair.arch }}-windows-msvc / ${{ matrix.pair.shared }}
+
+  #   steps:
+  #     - uses: ilammy/msvc-dev-cmd@v1
+  #       with:
+  #         arch: ${{ matrix.pair.vcvarsall }}
+
+  #     - name: Download Precompiled Perl5
+  #       shell: bash
+  #       run: |
+  #         curl -fSL https://github.com/cocoa-xu/perl-windows-build/releases/download/v${PERL5_VERSION}/perl-x86_64-windows-msvc.tar.gz -o perl-x86_64-windows-msvc.tar.gz
+  #         echo "Perl 5 Version: $PERL5_VERSION"
+  #         mkdir -p /c/perl
+  #         tar -xzf perl-x86_64-windows-msvc.tar.gz -C /c/perl 2>/dev/null
+
+  #     - name: Download OpenSSL Source Code
+  #       shell: bash
+  #       run: |
+  #         export OPENSSL_VERSION=${GITHUB_REF##*/v}
+  #         echo "OpenSSL Version: $OPENSSL_VERSION"
+  #         curl -fSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" -o "openssl-${OPENSSL_VERSION}.tar.gz"
+  #         tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz"
+  #         rm -rf openssl-${OPENSSL_VERSION}.tar.gz
+
+  #         if [ "${{ matrix.pair.arch }}" = "x86_64" ]; then
+  #           curl -fSL "https://www.nasm.us/pub/nasm/releasebuilds/2.16.01/win64/nasm-2.16.01-win64.zip" -o "nasm-2.16.01-win64.zip"
+  #           unzip -q "nasm-2.16.01-win64.zip" -d /c/nasm
+  #           rm -rf nasm-2.16.01-win64.zip
+  #         fi
+
+  #         # Remove the link command to avoid conflict with the Windows built-in command
+  #         mv /usr/bin/link /usr/bin/link_bak || true
+
+  #     - name: Compile OpenSSL
+  #       run: |
+  #         $OPENSSL_VERSION = ($env:GITHUB_REF).Replace("refs/tags/v", "")
+  #         cd "openssl-${OPENSSL_VERSION}"
+  #         $env:Path = "C:\perl\bin;" + $env:Path
+
+  #         if ( "${{ matrix.pair.shared }}" -eq "shared" ) {
+  #           $lib_type = "shared"
+  #         } else {
+  #           $lib_type = "no-shared"
+  #         }
+
+  #         if ( "${{ matrix.pair.arch }}" -eq "aarch64" ) {
+  #           cmd.exe /c "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvarsamd64_arm64.bat"
+  #           perl Configure VC-WIN64-ARM no-tests $lib_type --prefix=C:\OpenSSL-Win64 --openssldir=C:\OpenSSL-Win64
+  #         } else {
+  #           $env:Path = "C:\nasm\nasm-2.16.01;" + $env:Path
+  #           perl Configure VC-WIN64A no-tests $lib_type --prefix=C:\OpenSSL-Win64 --openssldir=C:\OpenSSL-Win64
+  #         }
+
+  #         nmake
+  #         nmake install_sw
+  #         nmake install_ssldirs
+
+  #     - name: Create tarballs
+  #       run: |
+  #         tar -czf ".\openssl-${{ matrix.pair.shared }}-${{ matrix.pair.arch }}-windows-msvc.tar.gz" -C C:\OpenSSL-Win64 .
+
+  #     - uses: softprops/action-gh-release@v1
+  #       if: startsWith(github.ref, 'refs/tags/')
+  #       with:
+  #         files: |
+  #           openssl-*.tar.gz
+
+  # deploy-windows:
+  #   runs-on: ubuntu-latest
+  #   needs: windows
+  #   steps:
+  #     - name: deploy
+  #       if: startsWith(github.ref, 'refs/tags/') && github.repository == 'cocoa-xu/openssl-build'
+  #       env:
+  #         DEPLOY_WINDOWS_HOOK_URL: ${{ secrets.DEPLOY_WINDOWS_HOOK_URL }}
+  #       run: |
+  #         curl -sS --no-progress-meter "${DEPLOY_WINDOWS_HOOK_URL}${{ github.ref_name }}"
