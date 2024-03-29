@@ -138,10 +138,9 @@ jobs:
           tar --strip-components=1 -zxf cpython.tar.gz
           # Build
           BUILD_VERSION=$(echo "${CPYTHON_VERSION}" | cut -d '.' -f 1-2)
-          alias nproc="sysctl -n hw.logicalcpu"
           ./configure --enable-optimizations
-          make -j$(nproc) libpython${BUILD_VERSION}.a libpython${BUILD_VERSION}.dylib
-          make DESTDIR=${ARCH}-apple-darwin -j$(nproc) install
+          make -j$(sysctl -n hw.logicalcpu) libpython${BUILD_VERSION}.a libpython${BUILD_VERSION}.dylib
+          make DESTDIR=${ARCH}-apple-darwin -j$(sysctl -n hw.logicalcpu) install
 
       - name: Package
         run: |
