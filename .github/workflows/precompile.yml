@@ -132,15 +132,14 @@ jobs:
     steps:
       - name: Download and Build
         run: |
-          mkdir build && cd build
           # Download sourcecode
           curl https://codeload.github.com/python/cpython/tar.gz/refs/tags/v${GITHUB_REF##*/v} -o cpython.tar.gz
           tar --strip-components=1 -zxf cpython.tar.gz
           # Build
           BUILD_VERSION=$(echo "${CPYTHON_VERSION}" | cut -d '.' -f 1-2)
-          ./configure --enable-optimizations
-          make -j$(sysctl -n hw.logicalcpu) libpython${BUILD_VERSION}.a libpython${BUILD_VERSION}.dylib
-          make DESTDIR=${ARCH}-apple-darwin -j$(sysctl -n hw.logicalcpu) install
+          ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared
+          make -j$(sysctl -n hw.logicalcpu)
+          make DESTDIR=build -j$(sysctl -n hw.logicalcpu) install
 
       - name: Package
         run: |

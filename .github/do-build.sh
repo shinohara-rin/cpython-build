@@ -19,6 +19,7 @@ mkdir build && cd build
 tar --strip-components=1 -zxf /work/cpython-${GITHUB_REF_NAME}.tar.gz
 
 ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared
+make -j$(nproc)
 make DESTDIR=${ARCH}-linux-gnu -j$(nproc) install
 
 tar -czf "/work/libpython-${ARCH}-linux-gnu.tar.gz" -C ${ARCH}-linux-gnu .
