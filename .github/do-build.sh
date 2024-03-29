@@ -8,7 +8,7 @@ BUILD_VERSION=$(echo "${GITHUB_REF_NAME}" | cut -d '.' -f 1-2)
 
 case "${ARCH}" in
     riscv64 )
-        apt-get update && apt-get install -y gcc g++ curl make automake autoconf perl openssl-dev
+        apt-get update && apt-get install -y gcc g++ curl make automake autoconf perl libssl-dev
     ;;
     * )
         yum install -y curl automake autoconf perl-IPC-Cmd openssl-devel
