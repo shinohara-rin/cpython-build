@@ -137,7 +137,11 @@ jobs:
           tar --strip-components=1 -zxf cpython.tar.gz
           # Build
           BUILD_VERSION=$(echo "${CPYTHON_VERSION}" | cut -d '.' -f 1-2)
-          ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            ./configure CFLAGS="-fPIC -arch arm64" --enable-optimizations --enable-shared --host=aarch64-apple-darwin --build=aarch64-apple-darwin
+          else
+            ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared --host=x86_64-apple-darwin --build=x86_64-apple-darwin
+          fi
           make -j$(sysctl -n hw.logicalcpu)
           make DESTDIR=build -j$(sysctl -n hw.logicalcpu) install
 
