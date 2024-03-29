@@ -138,7 +138,7 @@ jobs:
           # Build
           BUILD_VERSION=$(echo "${CPYTHON_VERSION}" | cut -d '.' -f 1-2)
           if [ "${{ matrix.arch }}" = "arm64" ]; then
-            ./configure CFLAGS="-fPIC -arch arm64" --enable-optimizations --enable-shared --host=aarch64-apple-darwin --build=aarch64-apple-darwin
+            ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared --host=x86_64-apple-darwin --target=aarch64-apple-darwin --build=aarch64-apple-darwin
           else
             ./configure CFLAGS="-fPIC" --enable-optimizations --enable-shared --host=x86_64-apple-darwin --build=x86_64-apple-darwin
           fi
