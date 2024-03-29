@@ -122,48 +122,36 @@ jobs:
   #         curl -sS --no-progress-meter "${DEPLOY_LINUX_GNU_HOOK_URL}${{ github.ref_name }}"
   #         curl -sS --no-progress-meter "${DEPLOY_LINUX_MUSL_HOOK_URL}${{ github.ref_name }}"
 
-  # macos:
-  #   runs-on: macos-12
-  #   strategy:
-  #     matrix:
-  #       arch: [x86_64, arm64]
-  #     fail-fast: false
-  #   name: ${{ matrix.arch }}-apple-darwin
-  #   steps:
-  #     - uses: actions/checkout@v4
+  macos:
+    runs-on: macos-12
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+      fail-fast: false
+    name: ${{ matrix.arch }}-apple-darwin
+    steps:
+      - name: Download and Build
+        run: |
+          mkdir build && cd build
+          # Download sourcecode
+          curl https://codeload.github.com/python/cpython/tar.gz/refs/tags/v${GITHUB_REF##*/v} -o cpython.tar.gz
+          tar --strip-components=1 -zxf cpython.tar.gz
+          # Build
+          BUILD_VERSION=$(echo "${CPYTHON_VERSION}" | cut -d '.' -f 1-2)
+          alias nproc="sysctl -n hw.logicalcpu"
+          ./configure --enable-optimizations
+          make -j$(nproc) libpython${BUILD_VERSION}.a libpython${BUILD_VERSION}.dylib
+          make DESTDIR=${ARCH}-apple-darwin -j$(nproc) install
 
-  #     - name: Download OpenSSL Source Code
-  #       run: |
-  #         export OPENSSL_VERSION=${GITHUB_REF##*/v}
-  #         echo "$OPENSSL_VERSION"
-  #         curl -fSL "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" -o "openssl-${OPENSSL_VERSION}.tar.gz"
-  #         tar -xzf "openssl-${OPENSSL_VERSION}.tar.gz"
+      - name: Package
+        run: |
+          tar -czf ${ARCH}-apple-darwin.tar.gz -C build .
 
-  #     - name: Compile OpenSSL
-  #       run: |
-  #         export OPENSSL_VERSION=${GITHUB_REF##*/v}
-  #         export ROOTDIR="$(pwd)"
-  #         export PERFIX_DIR="/tmp/openssl-${{ matrix.arch }}-apple-darwin"
-  #         mkdir -p "${PERFIX_DIR}"
-  #         cd "openssl-${OPENSSL_VERSION}"
-  #         mkdir build
-  #         if [ "${{ matrix.arch }}" = "arm64" ]; then
-  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" darwin64-arm64 no-tests
-  #         else
-  #           ./Configure --prefix="${PERFIX_DIR}" --openssldir="${PERFIX_DIR}" darwin64-x86_64 no-tests
-  #         fi
-  #         make -j"$(sysctl -n hw.ncpu)"
-  #         make -j"$(sysctl -n hw.ncpu)" install_sw
-  #         make -j"$(sysctl -n hw.ncpu)" install_ssldirs
-  #         mkdir -p "${ROOTDIR}/build"
-  #         cd "${PERFIX_DIR}"
-  #         tar -czf "${ROOTDIR}/build/openssl-${{ matrix.arch }}-apple-darwin.tar.gz" .
-
-  #     - uses: softprops/action-gh-release@v1
-  #       if: startsWith(github.ref, 'refs/tags/')
-  #       with:
-  #         files: |
-  #           build/*.tar.gz
+      - uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            *.tar.gz
 
   # deploy-macos:
   #   runs-on: ubuntu-latest
